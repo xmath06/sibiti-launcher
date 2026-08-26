@@ -195,6 +195,72 @@ fn find_project_dirs() -> DiscoveryResult {
     DiscoveryResult { backend, frontend }
 }
 
+/// Salin direktori secara rekursif (tanpa mengikuti symlink).
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let dest = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &dest)?;
+        } else {
+            fs::copy(&path, &dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Mode ter-bundle (installer self-contained): backend/frontend di-bundle ke
+/// resource aplikasi. Pada jalankan pertama, salin ke direktori data aplikasi
+/// yang writable, lalu kembalikan path tersebut agar langkah install/run
+/// berikutnya bekerja di folder tersebut.
+fn extract_bundled(app: &tauri::AppHandle) -> Option<(String, String)> {
+    let rd = app.path().resource_dir().ok()?;
+    let b_src = rd.join("app").join("backend");
+    let f_src = rd.join("app").join("frontend");
+    if !b_src.is_dir() || !f_src.is_dir() {
+        return None;
+    }
+    let data = app.path().app_data_dir().ok()?;
+    let base = data.join("cbt-app");
+    let b_dst = base.join("backend");
+    let f_dst = base.join("frontend");
+    if !b_dst.join("package.json").exists() {
+        let _ = fs::remove_dir_all(&b_dst);
+        if copy_dir_recursive(&b_src, &b_dst).is_err() {
+            return None;
+        }
+    }
+    if !f_dst.join("package.json").exists() {
+        let _ = fs::remove_dir_all(&f_dst);
+        if copy_dir_recursive(&f_src, &f_dst).is_err() {
+            return None;
+        }
+    }
+    if b_dst.join("package.json").exists() && f_dst.join("package.json").exists() {
+        Some((canon(&b_dst), canon(&f_dst)))
+    } else {
+        None
+    }
+}
+
+/// Gabungan penemuan relatif (sibling/cwd/config) dengan fallback ter-bundle.
+fn resolve_project_dirs(app: &tauri::AppHandle) -> DiscoveryResult {
+    let mut res = find_project_dirs();
+    if res.backend.is_none() || res.frontend.is_none() {
+        if let Some((b, f)) = extract_bundled(app) {
+            if res.backend.is_none() {
+                res.backend = Some(b);
+            }
+            if res.frontend.is_none() {
+                res.frontend = Some(f);
+            }
+        }
+    }
+    res
+}
+
 // ───────────────────────── Process helpers ─────────────────────────
 
 /// Program pm2: coba `pm2` di PATH, jika tidak ada pakai `bun x pm2`.
@@ -360,8 +426,8 @@ fn run_check(prog: &str) -> bool {
 // ───────────────────────── Tauri Commands ─────────────────────────
 
 #[tauri::command]
-fn discover() -> DiscoveryResult {
-    find_project_dirs()
+fn discover(app: tauri::AppHandle) -> DiscoveryResult {
+    resolve_project_dirs(&app)
 }
 
 #[tauri::command(rename = "check-system-status")]

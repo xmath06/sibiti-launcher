@@ -28,7 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["../proxy-server.mjs"],
+    "resources": [
+      "../proxy-server.mjs",
+      { "../backend": "app/backend", "../frontend": "app/frontend" }
+    ],
     "icon": ["icons/icon.ico"]
   }
 }

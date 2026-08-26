@@ -4,8 +4,14 @@ name: Build Windows Installer
 # Tauri tidak bisa membungkus installer Windows dari macOS, sehingga kita
 # membuild lewat CI runner Windows asli (MSVC + link.exe native).
 #
-# Hasil: artifact "Sibiti-Launcher-Windows" berisi installer NSIS (.exe) dan
-# WiX (.msi) dari src-tauri/target/release/bundle/.
+# Hasil:
+#   - Artifact "Sibiti-Launcher-Windows": installer NSIS (.exe) + WiX (.msi).
+#     Installer BERSIFAT SELF-CONTAINED: backend & frontend CBT di-bundle ke
+#     dalam installer, lalu ditarik ke direktori data aplikasi saat jalan
+#     pertama (lihat extract_bundled di lib.rs).
+#   - Artifact "CBT-Launcher-Portable": zip portabel berisi CBT Launcher.exe
+#     + folder backend/ + frontend/ sebagai saudara, sehingga bisa dipindah
+#     ke mana saja dan langsung dijalankan.
 #
 # Code-signing otomatis (opsional):
 #   Jika repo punya secret WINDOWS_CODESIGN_PFX (base64 .pfx) dan
@@ -53,8 +59,28 @@ jobs:
         continue-on-error: true
         run: choco install nsis wixtoolset -y
 
+      # Ambil repo backend & frontend CBT (publik) ke folder saudara agar
+      # bisa di-bundle sebagai resource. Dibersihkan dari node_modules/.git
+      # agar installer tidak membengkak.
+      - name: Fetch CBT backend & frontend
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/xmath06/sibitib.git "$GITHUB_WORKSPACE/../backend"
+          git clone --depth 1 https://github.com/xmath06/sibitif.git "$GITHUB_WORKSPACE/../frontend"
+
+      - name: Clean cloned deps (avoid bundling node_modules/.git)
+        shell: bash
+        run: |
+          for d in "$GITHUB_WORKSPACE/../backend" "$GITHUB_WORKSPACE/../frontend"; do
+            rm -rf "$d/.git"
+            find "$d" -name node_modules -type d -prune -exec rm -rf {} +
+          done
+          rm -rf "$GITHUB_WORKSPACE/../frontend/build" "$GITHUB_WORKSPACE/../frontend/dist"
+
       # beforeBuildCommand di tauri.conf.json menjalankan "bun run build"
-      # (build frontend via Vite) sebelum Tauri membungkus.
+      # (build frontend launcher via Vite) sebelum Tauri membungkus.
+      # backend/ & frontend/ CBT di-bundle sebagai resource (app/backend,
+      # app/frontend) untuk installer self-contained.
       - name: Build frontend & Tauri (Windows)
         run: bun run tauri build
 
@@ -88,9 +114,28 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Gagal menandatangani $($f.FullName)" }
           }
 
+      # Susun zip portabel: exe + backend/ + frontend/ sebagai saudara.
+      - name: Assemble portable zip
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/CBT Launcher.exe"
+          $out = "CBT-Launcher-Portable"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item $exe $out
+          Copy-Item "../backend" "$out/backend" -Recurse
+          Copy-Item "../frontend" "$out/frontend" -Recurse
+          Compress-Archive -Path "$out/*" -DestinationPath "CBT-Launcher-Portable.zip" -Force
+
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Sibiti-Launcher-Windows
           path: src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: CBT-Launcher-Portable
+          path: CBT-Launcher-Portable.zip
           if-no-files-found: error
