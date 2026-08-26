@@ -60,14 +60,28 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            let log = '';
-            try { log = fs.readFileSync('build.log', 'utf8'); } catch {}
-            const tail = log.split('\n').slice(-150).join('\n');
+            let body = 'Run: ' + context.runId + '\n';
+            const run = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId
+            });
+            for (const job of run.data.jobs) {
+              for (const step of job.steps || []) {
+                if (step.conclusion === 'failure') {
+                  body += '\n❌ Job "' + job.name + '" step "' + step.name + '" failed';
+                }
+              }
+            }
+            try {
+              const log = fs.readFileSync('build.log', 'utf8');
+              body += '\n\nbuild.log tail:\n' + log.split('\n').slice(-120).join('\n');
+            } catch (e) {}
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'CI build error (auto-diagnostic)',
-              body: '```\n' + tail + '\n```'
+              body: body
             });
 
       - name: Sign Windows binaries
