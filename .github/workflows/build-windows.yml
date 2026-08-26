@@ -65,17 +65,17 @@ jobs:
       - name: Fetch CBT backend & frontend
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/xmath06/sibitib.git "$GITHUB_WORKSPACE/../backend"
-          git clone --depth 1 https://github.com/xmath06/sibitif.git "$GITHUB_WORKSPACE/../frontend"
+          git clone --depth 1 https://github.com/xmath06/sibitib.git "$GITHUB_WORKSPACE/backend"
+          git clone --depth 1 https://github.com/xmath06/sibitif.git "$GITHUB_WORKSPACE/frontend"
 
       - name: Clean cloned deps (avoid bundling node_modules/.git)
         shell: bash
         run: |
-          for d in "$GITHUB_WORKSPACE/../backend" "$GITHUB_WORKSPACE/../frontend"; do
+          for d in "$GITHUB_WORKSPACE/backend" "$GITHUB_WORKSPACE/frontend"; do
             rm -rf "$d/.git"
             find "$d" -name node_modules -type d -prune -exec rm -rf {} +
           done
-          rm -rf "$GITHUB_WORKSPACE/../frontend/build" "$GITHUB_WORKSPACE/../frontend/dist"
+          rm -rf "$GITHUB_WORKSPACE/frontend/build" "$GITHUB_WORKSPACE/frontend/dist"
 
       # beforeBuildCommand di tauri.conf.json menjalankan "bun run build"
       # (build frontend launcher via Vite) sebelum Tauri membungkus.
@@ -122,8 +122,8 @@ jobs:
           $out = "CBT-Launcher-Portable"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item $exe $out
-          Copy-Item "../backend" "$out/backend" -Recurse
-          Copy-Item "../frontend" "$out/frontend" -Recurse
+          Copy-Item "backend" "$out/backend" -Recurse
+          Copy-Item "frontend" "$out/frontend" -Recurse
           Compress-Archive -Path "$out/*" -DestinationPath "CBT-Launcher-Portable.zip" -Force
 
       - name: Upload installer artifacts
