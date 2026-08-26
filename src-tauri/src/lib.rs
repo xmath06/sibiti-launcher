@@ -234,10 +234,10 @@ fn extract_bundled(app: &tauri::AppHandle) -> Option<(String, String)> {
                     continue;
                 }
                 if backend_src.is_none() && looks_like_backend(&p) {
-                    backend_src = Some(p);
+                    backend_src = Some(p.clone());
                 }
                 if frontend_src.is_none() && looks_like_frontend(&p) {
-                    frontend_src = Some(p);
+                    frontend_src = Some(p.clone());
                 }
             }
         }
