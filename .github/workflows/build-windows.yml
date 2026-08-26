@@ -44,13 +44,16 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install JS dependencies
-        run: bun install
+      - name: Install NSIS bundler tool
+        continue-on-error: true
+        run: choco install nsis -y
 
-      - name: Build Tauri (Windows)
+      - name: Install deps & Build Tauri (Windows)
         shell: pwsh
         run: |
-          bun run tauri build *> build.log
+          bun install *> build.log 2>&1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run tauri build *> build.log 2>&1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Report build error
