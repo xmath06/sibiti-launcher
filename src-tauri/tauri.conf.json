@@ -30,8 +30,8 @@
     "targets": "all",
     "resources": [
       "../proxy-server.mjs",
-      { "source": "../backend", "target": "app/backend" },
-      { "source": "../frontend", "target": "app/frontend" }
+      "../backend",
+      "../frontend"
     ],
     "icon": ["icons/icon.ico"]
   }

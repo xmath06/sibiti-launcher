@@ -217,11 +217,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 /// berikutnya bekerja di folder tersebut.
 fn extract_bundled(app: &tauri::AppHandle) -> Option<(String, String)> {
     let rd = app.path().resource_dir().ok()?;
-    let b_src = rd.join("app").join("backend");
-    let f_src = rd.join("app").join("frontend");
-    if !b_src.is_dir() || !f_src.is_dir() {
-        return None;
-    }
+    // Tergantung versi/schema, Tauri dapat menaruh resource di
+    // resource_dir()/backend atau resource_dir()/app/backend. Coba semua.
+    let candidates = [
+        (rd.join("backend"), rd.join("frontend")),
+        (rd.join("app").join("backend"), rd.join("app").join("frontend")),
+    ];
+    let (b_src, f_src) = candidates
+        .into_iter()
+        .find(|(b, f)| b.is_dir() && f.is_dir())?;
     let data = app.path().app_data_dir().ok()?;
     let base = data.join("cbt-app");
     let b_dst = base.join("backend");
