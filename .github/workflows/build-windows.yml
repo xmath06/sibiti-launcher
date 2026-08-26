@@ -2,18 +2,19 @@ name: Build Windows Installer
 
 # Build installer Windows (.msi + .exe) di runner GitHub (windows-latest).
 # Tauri tidak bisa membungkus installer Windows dari macOS, sehingga kita
-# membuild lewat CI. Hasil di-upload sebagai artifact (unduh dari tab Actions).
+# membuild lewat CI runner Windows asli (MSVC + link.exe native).
 #
-# Code-signing otomatis:
-#   Jika repo memiliki secret WINDOWS_CODESIGN_PFX (base64 dari file .pfx
-#   code-signing) dan WINDOWS_CODESIGN_PASSWORD, maka file .exe/.msi akan
-#   ditandatangani dengan signtool (Authenticode + timestamp). Tanpa secret,
-#   build tetap jalan menghasilkan installer TANPA tanda tangan.
-#   Cara dapat sertifikat: beli dari CA (DigiCert/Sectigo) atau pakai
-#   Azure Trusted Signing / SignPath (gratis untuk OSS).
+# Hasil: artifact "Sibiti-Launcher-Windows" berisi installer NSIS (.exe) dan
+# WiX (.msi) dari src-tauri/target/release/bundle/.
 #
-# Diagnostik: bila build gagal, 150 baris terakhir log otomatis diumpan ke
-# issue "CI build error (auto-diagnostic)" agar bisa dianalisis.
+# Code-signing otomatis (opsional):
+#   Jika repo punya secret WINDOWS_CODESIGN_PFX (base64 .pfx) dan
+#   WINDOWS_CODESIGN_PASSWORD, maka .exe/.msi ditandatangani dengan signtool
+#   (Authenticode + timestamp). Tanpa secret, installer tetap dihasilkan
+#   (tidak ditandatangani).
+#
+# Diagnostik (bukan Issue): bila build gagal, 120 baris terakhir log ditulis
+# ke ci-diagnostic.txt di repo agar bisa dianalisis.
 
 on:
   push:
@@ -36,23 +37,31 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Setup Rust
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Setup Rust (stable, Windows MSVC target)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      - name: Install NSIS bundler tool
+      # Alat bundler: NSIS (.exe) & WiX (.msi). Tauri v2 dapat memakai alat
+      # yang di-bundle, tetapi memasangnya via choco menjamin ketersediaan
+      # (link.exe/MSVC sudah ada di windows-latest).
+      - name: Install Windows bundler tools
         continue-on-error: true
-        run: choco install nsis -y
+        run: choco install nsis wixtoolset -y
 
-      - name: Install deps & Build Tauri (Windows)
+      # beforeBuildCommand di tauri.conf.json menjalankan "bun run build"
+      # (build frontend via Vite) sebelum Tauri membungkus.
+      - name: Build frontend & Tauri (Windows)
         shell: pwsh
         run: |
-          bun install *> build.log 2>&1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun run tauri build *> build.log 2>&1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -71,7 +80,7 @@ jobs:
             for (const job of run.data.jobs) {
               for (const step of job.steps || []) {
                 if (step.conclusion === 'failure') {
-                  body += '\n❌ Job "' + job.name + '" step "' + step.name + '" failed';
+                  body += '\nFAILED STEP: job="' + job.name + '" step="' + step.name + '"';
                 }
               }
             }
@@ -95,6 +104,7 @@ jobs:
               sha: sha
             });
 
+      # Penandatanganan otomatis (hanya jika secret tersedia).
       - name: Sign Windows binaries
         if: ${{ secrets.WINDOWS_CODESIGN_PFX != '' && secrets.WINDOWS_CODESIGN_PASSWORD != '' }}
         shell: pwsh
@@ -123,6 +133,6 @@ jobs:
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cbt-launcher-windows
+          name: Sibiti-Launcher-Windows
           path: src-tauri/target/release/bundle/**/*
           if-no-files-found: error

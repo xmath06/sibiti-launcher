@@ -27,7 +27,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "nsis",
+    "targets": "all",
     "resources": ["../proxy-server.mjs"],
     "icon": ["icons/icon.ico"]
   }
