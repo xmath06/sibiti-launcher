@@ -22,8 +22,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  issues: write
+  contents: write
 
 jobs:
   windows:
@@ -77,11 +76,20 @@ jobs:
               const log = fs.readFileSync('build.log', 'utf8');
               body += '\n\nbuild.log tail:\n' + log.split('\n').slice(-120).join('\n');
             } catch (e) {}
-            await github.rest.issues.create({
+            let sha;
+            try {
+              const cur = await github.rest.repos.getContent({
+                owner: context.repo.owner, repo: context.repo.repo, path: 'ci-diagnostic.txt'
+              });
+              sha = cur.data.sha;
+            } catch (e) {}
+            await github.rest.repos.createOrUpdateFileContents({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: 'CI build error (auto-diagnostic)',
-              body: body
+              path: 'ci-diagnostic.txt',
+              message: 'ci diagnostic [skip ci]',
+              content: Buffer.from(body).toString('base64'),
+              sha: sha
             });
 
       - name: Sign Windows binaries
