@@ -118,10 +118,12 @@ jobs:
       - name: Assemble portable zip
         shell: pwsh
         run: |
-          $exe = "src-tauri/target/release/CBT Launcher.exe"
+          $exeDir = "src-tauri/target/release"
+          $exe = Get-ChildItem $exeDir -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "App exe tidak ditemukan di $exeDir" }
           $out = "CBT-Launcher-Portable"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item $exe $out
+          Copy-Item $exe.FullName "$out/CBT Launcher.exe"
           Copy-Item "backend" "$out/backend" -Recurse
           Copy-Item "frontend" "$out/frontend" -Recurse
           Compress-Archive -Path "$out/*" -DestinationPath "CBT-Launcher-Portable.zip" -Force
