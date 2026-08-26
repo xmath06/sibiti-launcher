@@ -1,0 +1,75 @@
+name: Build Windows Installer
+
+# Build installer Windows (.msi + .exe) di runner GitHub (windows-latest).
+# Tauri tidak bisa membungkus installer Windows dari macOS, sehingga kita
+# membuild lewat CI. Hasil di-upload sebagai artifact (unduh dari tab Actions).
+#
+# Code-signing otomatis:
+#   Jika repo memiliki secret WINDOWS_CODESIGN_PFX (base64 dari file .pfx
+#   code-signing) dan WINDOWS_CODESIGN_PASSWORD, maka file .exe/.msi akan
+#   ditandatangani dengan signtool (Authenticode + timestamp). Tanpa secret,
+#   build tetap jalan menghasilkan installer TANPA tanda tangan.
+#   Cara dapat sertifikat: beli dari CA (DigiCert/Sectigo) atau pakai
+#   Azure Trusted Signing / SignPath (gratis untuk OSS).
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install JS dependencies
+        run: bun install
+
+      - name: Build Tauri (Windows)
+        run: bun run tauri build
+
+      - name: Sign Windows binaries
+        if: ${{ secrets.WINDOWS_CODESIGN_PFX != '' && secrets.WINDOWS_CODESIGN_PASSWORD != '' }}
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_CODESIGN_PFX }}
+          PFX_PASS: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          $stPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -products * -requires Microsoft.Component.Windows.SDK `
+            -find **/signtool.exe | Select-Object -First 1
+          if (-not $stPath) { throw "signtool.exe tidak ditemukan" }
+          $bytes = [System.Convert]::FromBase64String($env:PFX_B64)
+          $pfx = "$env:RUNNER_TEMP\codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfx, $bytes)
+
+          $files = Get-ChildItem src-tauri/target/release `
+            -Recurse -Include *.exe,*.msi
+          foreach ($f in $files) {
+            Write-Host "Signing $($f.FullName)"
+            & $stPath sign /f $pfx /p $env:PFX_PASS `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /d "CBT Launcher" $f.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Gagal menandatangani $($f.FullName)" }
+          }
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cbt-launcher-windows
+          path: src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
