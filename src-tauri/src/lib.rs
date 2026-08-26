@@ -217,15 +217,35 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 /// berikutnya bekerja di folder tersebut.
 fn extract_bundled(app: &tauri::AppHandle) -> Option<(String, String)> {
     let rd = app.path().resource_dir().ok()?;
-    // Tergantung versi/schema, Tauri dapat menaruh resource di
-    // resource_dir()/backend atau resource_dir()/app/backend. Coba semua.
-    let candidates = [
-        (rd.join("backend"), rd.join("frontend")),
-        (rd.join("app").join("backend"), rd.join("app").join("frontend")),
-    ];
-    let (b_src, f_src) = candidates
-        .into_iter()
-        .find(|(b, f)| b.is_dir() && f.is_dir())?;
+    // Cari backend/frontend ter-bundle berdasarkan tanda package.json-nya
+    // (elysia / db:migrate untuk backend, @sveltejs/kit untuk frontend),
+    // terlepas di folder mana Tauri meletakkannya di resource_dir.
+    let mut backend_src = None;
+    let mut frontend_src = None;
+    let roots = [rd.clone(), rd.join("app"), rd.join("resources")];
+    for root in roots.iter() {
+        if !root.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = fs::read_dir(root) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                if backend_src.is_none() && looks_like_backend(&p) {
+                    backend_src = Some(p);
+                }
+                if frontend_src.is_none() && looks_like_frontend(&p) {
+                    frontend_src = Some(p);
+                }
+            }
+        }
+        if backend_src.is_some() && frontend_src.is_some() {
+            break;
+        }
+    }
+    let (b_src, f_src) = (backend_src?, frontend_src?);
     let data = app.path().app_data_dir().ok()?;
     let base = data.join("cbt-app");
     let b_dst = base.join("backend");
