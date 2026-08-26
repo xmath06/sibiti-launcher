@@ -12,9 +12,6 @@ name: Build Windows Installer
 #   WINDOWS_CODESIGN_PASSWORD, maka .exe/.msi ditandatangani dengan signtool
 #   (Authenticode + timestamp). Tanpa secret, installer tetap dihasilkan
 #   (tidak ditandatangani).
-#
-# Diagnostik (bukan Issue): bila build gagal, 120 baris terakhir log ditulis
-# ke ci-diagnostic.txt di repo agar bisa dianalisis.
 
 on:
   push:
@@ -23,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows:
@@ -51,8 +48,7 @@ jobs:
           workspaces: './src-tauri -> target'
 
       # Alat bundler: NSIS (.exe) & WiX (.msi). Tauri v2 dapat memakai alat
-      # yang di-bundle, tetapi memasangnya via choco menjamin ketersediaan
-      # (link.exe/MSVC sudah ada di windows-latest).
+      # yang di-bundle, tetapi memasangnya via choco menjamin ketersediaan.
       - name: Install Windows bundler tools
         continue-on-error: true
         run: choco install nsis wixtoolset -y
@@ -60,58 +56,20 @@ jobs:
       # beforeBuildCommand di tauri.conf.json menjalankan "bun run build"
       # (build frontend via Vite) sebelum Tauri membungkus.
       - name: Build frontend & Tauri (Windows)
-        shell: pwsh
-        run: |
-          bun run tauri build *> build.log 2>&1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: bun run tauri build
 
-      - name: Report build error
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let body = 'Run: ' + context.runId + '\n';
-            const run = await github.rest.actions.listJobsForWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.runId
-            });
-            for (const job of run.data.jobs) {
-              for (const step of job.steps || []) {
-                if (step.conclusion === 'failure') {
-                  body += '\nFAILED STEP: job="' + job.name + '" step="' + step.name + '"';
-                }
-              }
-            }
-            try {
-              const log = fs.readFileSync('build.log', 'utf8');
-              body += '\n\nbuild.log tail:\n' + log.split('\n').slice(-120).join('\n');
-            } catch (e) {}
-            let sha;
-            try {
-              const cur = await github.rest.repos.getContent({
-                owner: context.repo.owner, repo: context.repo.repo, path: 'ci-diagnostic.txt'
-              });
-              sha = cur.data.sha;
-            } catch (e) {}
-            await github.rest.repos.createOrUpdateFileContents({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              path: 'ci-diagnostic.txt',
-              message: 'ci diagnostic [skip ci]',
-              content: Buffer.from(body).toString('base64'),
-              sha: sha
-            });
-
-      # Penandatanganan otomatis (hanya jika secret tersedia).
+      # Penandatanganan otomatis (hanya jika secret tersedia; guard di dalam
+      # script agar tidak pakai context secrets di dalam `if:`).
       - name: Sign Windows binaries
-        if: ${{ secrets.WINDOWS_CODESIGN_PFX != '' && secrets.WINDOWS_CODESIGN_PASSWORD != '' }}
         shell: pwsh
         env:
           PFX_B64: ${{ secrets.WINDOWS_CODESIGN_PFX }}
           PFX_PASS: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: |
+          if (-not $env:PFX_B64 -or -not $env:PFX_PASS) {
+            Write-Host "Tidak ada secret code-signing; lewati penandatanganan."
+            exit 0
+          }
           $stPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
             -latest -products * -requires Microsoft.Component.Windows.SDK `
             -find **/signtool.exe | Select-Object -First 1
