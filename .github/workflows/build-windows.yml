@@ -11,6 +11,9 @@ name: Build Windows Installer
 #   build tetap jalan menghasilkan installer TANPA tanda tangan.
 #   Cara dapat sertifikat: beli dari CA (DigiCert/Sectigo) atau pakai
 #   Azure Trusted Signing / SignPath (gratis untuk OSS).
+#
+# Diagnostik: bila build gagal, 150 baris terakhir log otomatis diumpan ke
+# issue "CI build error (auto-diagnostic)" agar bisa dianalisis.
 
 on:
   push:
@@ -20,6 +23,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   windows:
@@ -45,7 +49,26 @@ jobs:
         run: bun install
 
       - name: Build Tauri (Windows)
-        run: bun run tauri build
+        shell: pwsh
+        run: |
+          bun run tauri build *> build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Report build error
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try { log = fs.readFileSync('build.log', 'utf8'); } catch {}
+            const tail = log.split('\n').slice(-150).join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'CI build error (auto-diagnostic)',
+              body: '```\n' + tail + '\n```'
+            });
 
       - name: Sign Windows binaries
         if: ${{ secrets.WINDOWS_CODESIGN_PFX != '' && secrets.WINDOWS_CODESIGN_PASSWORD != '' }}
